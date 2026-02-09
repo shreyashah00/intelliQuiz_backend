@@ -1,0 +1,231 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  UserID            Int            @id @default(autoincrement())
+  Username          String         @unique
+  Email             String         @unique
+  Password          String
+  Role              String         @default("student")
+  FirstName         String?
+  LastName          String?
+  PhoneNumber       String?
+  ProfilePicture    String?
+  Bio               String?
+  DateOfBirth       DateTime?
+  Gender            String?
+  Address           String?
+  City              String?
+  Country           String?
+  EmailVerified     Boolean        @default(false)
+  OTP               String?
+  OTPExpiry         DateTime?
+  OTPAttempts       Int            @default(0)
+  AccountStatus     String         @default("active")
+  LastPasswordReset DateTime?
+  RefreshToken      String?
+  CreatedAt         DateTime       @default(now())
+  UpdatedAt         DateTime       @updatedAt
+  LastLogin         DateTime?
+  Files             File[]
+  CreatedQuizzes    Quiz[]
+  QuizResponses     QuizResponse[]
+  CreatedGroups     Group[]
+  GroupMemberships  GroupMember[]
+  
+  @@index([Email])
+  @@index([Username])
+  @@index([Role])
+  @@map("users")
+}
+
+model File {
+  FileID       Int      @id @default(autoincrement())
+  UserID       Int
+  FileName     String
+  FileType     String
+  FileSize     Int
+  TotalChunks  Int      @default(0)
+  Status       String   @default("processing")
+  UploadedAt   DateTime @default(now())
+  ProcessedAt  DateTime?
+  User         User     @relation(fields: [UserID], references: [UserID], onDelete: Cascade)
+  Chunks       Chunk[]
+
+  @@index([UserID])
+  @@index([Status])
+  @@map("files")
+}
+
+model Chunk {
+  ChunkID    Int      @id @default(autoincrement())
+  FileID     Int
+  ChunkIndex Int
+  Content    String
+  CreatedAt  DateTime @default(now())
+  File       File     @relation(fields: [FileID], references: [FileID], onDelete: Cascade)
+
+  @@index([FileID])
+  @@map("file_chunks")
+}
+
+model Quiz {
+  QuizID          Int            @id @default(autoincrement())
+  Title           String
+  Description     String?
+  Difficulty      String         // 'easy', 'medium', 'hard'
+  Subject         String?
+  TimeLimit       Int?           // in minutes
+  TotalQuestions  Int            @default(0)
+  CreatedBy       Int
+  IsPublished     Boolean        @default(false)
+  CreatedAt       DateTime       @default(now())
+  UpdatedAt       DateTime       @updatedAt
+  Creator         User           @relation(fields: [CreatedBy], references: [UserID], onDelete: Cascade)
+  Questions       Question[]
+  Responses       QuizResponse[]
+  QuizGroups      QuizGroup[]
+
+  @@index([CreatedBy])
+  @@index([IsPublished])
+  @@map("quizzes")
+}
+
+model Question {
+  QuestionID    Int            @id @default(autoincrement())
+  QuizID        Int
+  QuestionText  String
+  QuestionType  String         @default("multiple_choice") // 'multiple_choice', 'true_false', 'short_answer'
+  Points        Int            @default(1)
+  OrderIndex    Int
+  CreatedAt     DateTime       @default(now())
+  Quiz          Quiz           @relation(fields: [QuizID], references: [QuizID], onDelete: Cascade)
+  Options       Option[]
+  Answers       QuizAnswer[]
+
+  @@index([QuizID])
+  @@map("questions")
+}
+
+model Option {
+  OptionID        Int          @id @default(autoincrement())
+  QuestionID      Int
+  OptionText      String
+  IsCorrect       Boolean      @default(false)
+  OrderIndex      Int
+  CreatedAt       DateTime     @default(now())
+  Question        Question     @relation(fields: [QuestionID], references: [QuestionID], onDelete: Cascade)
+  SelectedAnswers QuizAnswer[]
+
+  @@index([QuestionID])
+  @@map("options")
+}
+
+model QuizResponse {
+  ResponseID           Int          @id @default(autoincrement())
+  QuizID               Int
+  UserID               Int
+  Score                Float        @default(0)
+  TotalScore           Float        @default(0)
+  Percentage           Float        @default(0)
+  TimeSpent            Int?         // in seconds
+  Status               String       @default("completed") // 'completed', 'in_progress', 'abandoned'
+  StartedAt            DateTime     @default(now())
+  CompletedAt          DateTime?
+  AIInsightsGenerated  Boolean      @default(false)
+  AIInsights           Json?        // Store AI-generated insights
+  CreatedAt            DateTime     @default(now())
+  UpdatedAt            DateTime     @updatedAt
+  Quiz                 Quiz         @relation(fields: [QuizID], references: [QuizID], onDelete: Cascade)
+  User                 User         @relation(fields: [UserID], references: [UserID], onDelete: Cascade)
+  Answers              QuizAnswer[]
+
+  @@index([QuizID])
+  @@index([UserID])
+  @@index([Status])
+  @@map("quiz_responses")
+}
+
+model QuizAnswer {
+  AnswerID         Int          @id @default(autoincrement())
+  ResponseID       Int
+  QuestionID       Int
+  SelectedOptionID Int?         // For multiple choice
+  AnswerText       String?      // For short answer, free text
+  IsCorrect        Boolean      @default(false)
+  PointsEarned     Float        @default(0)
+  TimeTaken        Int?         // in seconds
+  CreatedAt        DateTime     @default(now())
+  Response         QuizResponse @relation(fields: [ResponseID], references: [ResponseID], onDelete: Cascade)
+  Question         Question     @relation(fields: [QuestionID], references: [QuestionID], onDelete: Cascade)
+  SelectedOption   Option?      @relation(fields: [SelectedOptionID], references: [OptionID], onDelete: SetNull)
+
+  @@index([ResponseID])
+  @@index([QuestionID])
+  @@map("quiz_answers")
+}
+
+model Group {
+  GroupID      Int            @id @default(autoincrement())
+  Name         String
+  Description  String?
+  CreatedBy    Int
+  CreatedAt    DateTime       @default(now())
+  UpdatedAt    DateTime       @updatedAt
+  Creator      User           @relation(fields: [CreatedBy], references: [UserID], onDelete: Cascade)
+  Members      GroupMember[]
+  QuizGroups   QuizGroup[]
+
+  @@index([CreatedBy])
+  @@map("groups")
+}
+
+model GroupMember {
+  GroupMemberID  Int      @id @default(autoincrement())
+  GroupID        Int
+  UserID         Int
+  Status         String   @default("pending") // 'pending', 'accepted', 'rejected'
+  InvitedAt      DateTime @default(now())
+  AcceptedAt     DateTime?
+  RejectedAt     DateTime?
+  Group          Group    @relation(fields: [GroupID], references: [GroupID], onDelete: Cascade)
+  User           User     @relation(fields: [UserID], references: [UserID], onDelete: Cascade)
+
+  @@unique([GroupID, UserID])
+  @@index([GroupID])
+  @@index([UserID])
+  @@index([Status])
+  @@map("group_members")
+}
+
+model QuizGroup {
+  QuizGroupID     Int       @id @default(autoincrement())
+  QuizID          Int
+  GroupID         Int
+  IsScheduled     Boolean   @default(false)
+  ScheduledAt     DateTime?
+  PublishedAt     DateTime?
+  Status          String    @default("published") // 'scheduled', 'published', 'cancelled'
+  CreatedAt       DateTime  @default(now())
+  Quiz            Quiz      @relation(fields: [QuizID], references: [QuizID], onDelete: Cascade)
+  Group           Group     @relation(fields: [GroupID], references: [GroupID], onDelete: Cascade)
+
+  @@unique([QuizID, GroupID])
+  @@index([QuizID])
+  @@index([GroupID])
+  @@index([Status])
+  @@index([ScheduledAt])
+  @@map("quiz_groups")
+}

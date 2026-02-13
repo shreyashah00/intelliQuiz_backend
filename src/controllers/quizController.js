@@ -788,6 +788,76 @@ exports.publishQuizToGroups = async (req, res) => {
 };
 
 /**
+ * Unpublish a quiz (teacher only, own quizzes)
+ */
+exports.unpublishQuiz = async (req, res) => {
+  try {
+    const { quizId } = req.params;
+    const teacherId = req.user.UserID;
+
+    // Validate teacher role
+    const user = await prisma.user.findUnique({
+      where: { UserID: teacherId }
+    });
+
+    if (user.Role !== 'teacher') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only teachers can unpublish quizzes'
+      });
+    }
+
+    // Verify quiz ownership
+    const quiz = await prisma.quiz.findFirst({
+      where: { QuizID: parseInt(quizId), CreatedBy: teacherId }
+    });
+
+    if (!quiz) {
+      return res.status(404).json({
+        success: false,
+        message: 'Quiz not found or access denied'
+      });
+    }
+
+    if (!quiz.IsPublished) {
+      return res.status(400).json({
+        success: false,
+        message: 'Quiz is not published'
+      });
+    }
+
+    // Remove quiz from all groups (set status to cancelled for published ones)
+    await prisma.quizGroup.updateMany({
+      where: { QuizID: parseInt(quizId), Status: 'published' },
+      data: { Status: 'cancelled' }
+    });
+
+    // Cancel any scheduled publications
+    await prisma.quizGroup.updateMany({
+      where: { QuizID: parseInt(quizId), Status: 'scheduled' },
+      data: { Status: 'cancelled' }
+    });
+
+    // Update quiz as unpublished
+    await prisma.quiz.update({
+      where: { QuizID: parseInt(quizId) },
+      data: { IsPublished: false }
+    });
+
+    res.json({
+      success: true,
+      message: 'Quiz unpublished successfully'
+    });
+  } catch (error) {
+    console.error('Unpublish quiz error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while unpublishing quiz'
+    });
+  }
+};
+
+/**
  * Get scheduled quizzes for a teacher
  */
 exports.getScheduledQuizzes = async (req, res) => {

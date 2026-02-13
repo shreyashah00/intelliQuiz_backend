@@ -35,6 +35,9 @@ router.get('/:quizId', quizController.getQuizById);
 // Update quiz (teacher only, own quizzes)
 router.put('/:quizId', quizController.updateQuiz);
 
+// Unpublish quiz (teacher only, own quizzes)
+router.put('/:quizId/unpublish', quizController.unpublishQuiz);
+
 // Delete quiz (teacher only, own quizzes)
 router.delete('/:quizId', quizController.deleteQuiz);
 

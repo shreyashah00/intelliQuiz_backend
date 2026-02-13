@@ -9,7 +9,10 @@ const quizRoutes = require('./routes/quizRoutes');
 const quizResponseRoutes = require('./routes/quizResponseRoutes');
 const groupRoutes = require('./routes/groupRoutes');
 const leaderboardRoutes = require('./routes/leaderboardRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 const socketService = require('./services/socketService');
+const adminController = require('./controllers/adminController');
+const router = express.Router();
 
 const app = express();
 const server = http.createServer(app);
@@ -31,6 +34,9 @@ app.use('/api/quizzes', quizRoutes);
 app.use('/api/quiz-responses', quizResponseRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
+app.use('/api/admin', adminRoutes);
+app.post("/api/create/admin", adminController.createAdminUser);
+
 
 app.use((err, req, res, next) => {
   console.error(err.stack);

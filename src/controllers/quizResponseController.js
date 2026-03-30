@@ -159,27 +159,17 @@ exports.submitQuizResponse = async (req, res) => {
 
     // Emit real-time notification to teacher dashboard
     try {
-      socketService.notifyTeachers('submissionNotification', {
+      await socketService.emitSubmissionActivities({
+        responseId: quizResponse.ResponseID,
         quizId: parseInt(quizId),
         userId,
+        username: req.user.Username,
+        fullName: `${req.user.FirstName || ''} ${req.user.LastName || ''}`.trim() || req.user.Username,
         score: earnedScore,
         totalScore,
         percentage: Math.round(percentage * 100) / 100,
+        timeSpent: typeof timeSpent === 'number' ? timeSpent : (quizResponse.TimeSpent || null),
         submittedAt: new Date()
-      });
-
-      // Also emit to quiz-specific room for detailed leaderboard updates
-      socketService.notifyQuizRoom(quizId, 'leaderboardUpdate', {
-        type: 'newSubmission',
-        data: {
-          userId,
-          username: req.user.Username,
-          fullName: `${req.user.FirstName || ''} ${req.user.LastName || ''}`.trim() || req.user.Username,
-          score: earnedScore,
-          totalScore,
-          percentage: Math.round(percentage * 100) / 100,
-          submittedAt: new Date()
-        }
       });
     } catch (socketError) {
       console.error('Error emitting socket notification:', socketError);
@@ -480,6 +470,11 @@ exports.generateInsights = async (req, res) => {
               }
             },
             SelectedOption: true
+          },
+          orderBy: {
+            Question: {
+              OrderIndex: 'asc'
+            }
           }
         }
       }

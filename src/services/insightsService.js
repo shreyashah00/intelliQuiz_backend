@@ -11,31 +11,36 @@ const client = new OpenAI({
  * @param {Object} response - Quiz response object with answers, quiz, and user data
  * @returns {Object} - Structured insights object
  */
-exports.generateAIInsights = async (response) => {
+exports.generateAIInsights = async (quizResponse) => {
+  let analysisData;
+
   try {
     // Prepare data for AI analysis
-    const analysisData = prepareAnalysisData(response);
+    analysisData = prepareAnalysisData(quizResponse);
 
     // Generate insights using Groq AI
-    const prompt = createInsightsPrompt(analysisData);
+    const { systemPrompt, userPrompt } = createInsightsPrompt(analysisData);
 
-    const response = await client.chat.completions.create({
+    const completion = await client.chat.completions.create({
       messages: [
         {
           role: 'system',
-          content: 'You are an expert educational AI assistant that provides detailed, constructive, and personalized learning insights based on quiz performance. Your insights should be encouraging, specific, and actionable.'
+          content: systemPrompt
         },
         {
           role: 'user',
-          content: prompt
+          content: userPrompt
         }
       ],
       model: process.env.GROQ_AI_MODEL || "llama3-8b-8192",
-      temperature: 0.3,
-      max_tokens: 4000
+      temperature: 0.2,
+      max_tokens: 3000
     });
 
-    const aiResponse = response.choices[0].message.content;
+    const aiResponse = completion?.choices?.[0]?.message?.content;
+    if (!aiResponse) {
+      throw new Error('AI model returned an empty response');
+    }
 
     // Parse and structure the AI response
     const insights = parseAIInsights(aiResponse, analysisData);
@@ -46,7 +51,7 @@ exports.generateAIInsights = async (response) => {
     console.error('Error generating AI insights:', error);
     
     // Fallback to basic insights if AI fails
-    return generateBasicInsights(response);
+    return generateBasicInsights(analysisData || quizResponse);
   }
 };
 
@@ -60,6 +65,8 @@ function prepareAnalysisData(response) {
 
   // Categorize questions by topic/concept if available
   const questionsAnalysis = response.Answers.map(answer => ({
+    questionId: answer.Question.QuestionID,
+    orderIndex: answer.Question.OrderIndex,
     questionText: answer.Question.QuestionText,
     questionType: answer.Question.QuestionType,
     isCorrect: answer.IsCorrect,
@@ -96,107 +103,121 @@ function prepareAnalysisData(response) {
  * Create a detailed prompt for AI insights generation
  */
 function createInsightsPrompt(data) {
-  return `
-You are an expert educational analyst and learning specialist. Analyze this quiz performance data in extreme detail and provide comprehensive, actionable insights that will genuinely help the student improve.
+  const promptPayload = {
+    quizContext: {
+      title: data.quizTitle,
+      subject: data.quizSubject || 'General Knowledge',
+      difficulty: data.quizDifficulty,
+      totalQuestions: data.totalQuestions
+    },
+    studentContext: {
+      name: data.studentName || 'Student'
+    },
+    performanceSummary: {
+      score: data.score,
+      totalScore: data.totalScore,
+      percentage: Number(data.percentage.toFixed(2)),
+      correctAnswers: data.correctAnswers,
+      incorrectAnswers: data.incorrectAnswers,
+      timeSpentSeconds: data.timeSpent || null,
+      averageTimePerQuestion: data.timeSpent && data.totalQuestions > 0
+        ? Math.round(data.timeSpent / data.totalQuestions)
+        : null
+    },
+    responses: data.questionsAnalysis.map((q, i) => ({
+      questionNumber: i + 1,
+      questionId: q.questionId,
+      orderIndex: q.orderIndex,
+      questionType: q.questionType,
+      questionText: q.questionText,
+      isCorrect: q.isCorrect,
+      pointsEarned: q.pointsEarned,
+      maxPoints: q.maxPoints,
+      timeTakenSeconds: q.timeTaken || null,
+      studentAnswer: q.userAnswer || null,
+      correctAnswer: q.correctAnswer || null
+    }))
+  };
 
-**QUIZ CONTEXT:**
-- Title: ${data.quizTitle}
-- Subject Area: ${data.quizSubject || 'General Knowledge'}
-- Difficulty Level: ${data.quizDifficulty}
-- Total Questions: ${data.totalQuestions}
-- Student Performance: ${data.correctAnswers}/${data.totalQuestions} correct (${data.percentage.toFixed(2)}%)
-- Time Spent: ${data.timeSpent ? `${Math.floor(data.timeSpent / 60)} minutes ${data.timeSpent % 60} seconds` : 'Not recorded'}
-- Student: ${data.studentName}
+  const systemPrompt = [
+    'You are an educational assessment expert and personalized learning coach.',
+    'Use only the provided quiz data. Do not invent topics, scores, or mistakes.',
+    'Return one valid JSON object only, without markdown fences or extra text.',
+    'Keep guidance constructive, practical, and specific to this student.'
+  ].join(' ');
 
-**QUESTION-BY-QUESTION ANALYSIS:**
-${data.questionsAnalysis.map((q, i) => `
-Question ${i + 1}: "${q.questionText}"
-- Status: ${q.isCorrect ? 'CORRECT' : 'INCORRECT'}
-- Time Taken: ${q.timeTaken ? `${q.timeTaken} seconds` : 'Not recorded'}
-- Student Answer: ${q.userAnswer || 'No answer provided'}
-- Correct Answer: ${q.correctAnswer || 'N/A'}
-- Points Earned: ${q.pointsEarned}/${q.maxPoints}
-`).join('\n')}
+  const userPrompt = `
+Analyze this quiz response dataset and generate specific learning insights.
 
-**PATTERN ANALYSIS REQUEST:**
-Analyze this performance data and identify:
-1. **Knowledge Gaps**: What specific concepts does the student struggle with?
-2. **Misconceptions**: What wrong ideas or approaches does the student have?
-3. **Strength Areas**: What concepts has the student mastered?
-4. **Learning Style**: Does the student work better with certain question types?
-5. **Time Management**: How does the student allocate time across different topics?
-6. **Consistency**: Are there patterns in when the student gets questions right/wrong?
+DATASET (JSON):
+${JSON.stringify(promptPayload, null, 2)}
 
-**REQUIRED DETAILED ANALYSIS:**
-
-Provide a comprehensive analysis in this exact JSON structure:
+Return JSON with this exact top-level structure:
 {
   "overallPerformance": {
-    "grade": "A+/A/B+/B/C+/C/D/F",
-    "letterGrade": "A/B/C/D/F",
-    "percentage": ${data.percentage.toFixed(2)},
-    "performanceLevel": "Excellent/Good/Satisfactory/Needs Improvement/Poor",
-    "summary": "3-4 sentence detailed assessment of overall performance",
-    "keyStrengths": ["Specific strength 1", "Specific strength 2", "Specific strength 3"],
-    "majorWeaknesses": ["Specific weakness 1", "Specific weakness 2"],
-    "improvementAreas": ["Area needing work 1", "Area needing work 2"]
+    "grade": "A+|A|B+|B|C+|C|D|F",
+    "letterGrade": "A|B|C|D|F",
+    "percentage": number,
+    "performanceLevel": "Excellent|Good|Satisfactory|Needs Improvement|Poor",
+    "summary": "3-4 sentence summary grounded in this quiz only",
+    "keyStrengths": ["..."],
+    "majorWeaknesses": ["..."],
+    "improvementAreas": ["..."]
   },
   "conceptualAnalysis": {
-    "masteredConcepts": ["Concept fully understood 1", "Concept fully understood 2"],
-    "partiallyUnderstoodConcepts": ["Concept with partial understanding 1", "Concept with partial understanding 2"],
-    "misunderstoodConcepts": ["Concept with major gaps 1", "Concept with major gaps 2"],
-    "knowledgeGaps": ["Specific missing knowledge 1", "Specific missing knowledge 2"]
+    "masteredConcepts": ["..."],
+    "partiallyUnderstoodConcepts": ["..."],
+    "misunderstoodConcepts": ["..."],
+    "knowledgeGaps": ["..."]
   },
   "questionTypeAnalysis": {
-    "bestPerformingType": "Multiple choice / True-false / Short answer",
-    "worstPerformingType": "Multiple choice / True-false / Short answer",
-    "recommendedFocus": "Which question type needs more practice"
+    "bestPerformingType": "multiple_choice|true_false|short_answer|mixed",
+    "worstPerformingType": "multiple_choice|true_false|short_answer|mixed",
+    "recommendedFocus": "..."
   },
   "timeManagementAnalysis": {
-    "averageTimePerQuestion": "X seconds",
-    "timeEfficiency": "Efficient / Could be better / Needs improvement",
-    "slowQuestions": ["Question topics that took too long"],
-    "fastQuestions": ["Question topics answered quickly"],
-    "timeRecommendations": ["Specific time management advice"]
+    "averageTimePerQuestion": "...",
+    "timeEfficiency": "Efficient|Could be better|Needs improvement|Not available",
+    "slowQuestions": ["question numbers or brief topics"],
+    "fastQuestions": ["question numbers or brief topics"],
+    "timeRecommendations": ["..."]
   },
   "detailedRecommendations": [
     {
-      "priority": "high/medium/low",
-      "category": "Study Technique / Content Review / Practice / Time Management",
-      "specificAction": "Exact actionable step",
-      "expectedImpact": "How this will help",
-      "timeline": "Immediate / This week / This month"
+      "priority": "high|medium|low",
+      "category": "Study Technique|Content Review|Practice|Time Management",
+      "specificAction": "clear, measurable action",
+      "expectedImpact": "...",
+      "timeline": "Immediate|This week|This month"
     }
   ],
   "learningPath": {
-    "immediateActions": ["Next 3 things to do today/tomorrow"],
-    "shortTermGoals": ["Goals for next week"],
-    "longTermStrategy": ["Overall learning approach"],
-    "resourceSuggestions": ["Specific study materials or methods"]
+    "immediateActions": ["..."],
+    "shortTermGoals": ["..."],
+    "longTermStrategy": ["..."],
+    "resourceSuggestions": ["..."]
   },
   "motivationalInsights": {
-    "progressAssessment": "How much progress has been made",
-    "confidenceBuilding": "Specific encouragement based on performance",
-    "growthMindset": "Message promoting growth mindset",
-    "nextChallenge": "Appropriate next difficulty level or topic"
+    "progressAssessment": "...",
+    "confidenceBuilding": "...",
+    "growthMindset": "...",
+    "nextChallenge": "..."
   },
   "predictiveAnalysis": {
-    "likelyScoreImprovement": "Expected score range with recommended actions",
-    "riskAreas": ["Topics likely to cause issues in future assessments"],
-    "readinessLevel": "Prepared for similar difficulty / Needs more practice"
+    "likelyScoreImprovement": "...",
+    "riskAreas": ["..."],
+    "readinessLevel": "Prepared for similar difficulty|Needs more practice"
   }
 }
 
-**CRITICAL REQUIREMENTS:**
-- Be extremely specific - avoid general statements like "study more"
-- Reference actual questions and topics from the quiz
-- Provide measurable, actionable recommendations
-- Consider the student's current performance level
-- Include both encouragement and constructive criticism
-- Make suggestions realistic and achievable
+Rules:
+- Reference evidence using question numbers when possible.
+- Do not use generic advice like "study more" without concrete actions.
+- Keep recommendations realistic for the student's current level.
+- If data is missing (for example short answer correctness), explicitly say so in relevant fields.
+`.trim();
 
-Provide ONLY the JSON response with no additional text or formatting.
-`;
+  return { systemPrompt, userPrompt };
 }
 
 /**
@@ -208,10 +229,11 @@ function parseAIInsights(aiResponse, analysisData) {
     const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
+      const normalized = normalizeInsights(parsed, analysisData);
       
       // Add metadata
       return {
-        ...parsed,
+        ...normalized,
         metadata: {
           generatedAt: new Date().toISOString(),
           quizScore: analysisData.score,
@@ -235,6 +257,85 @@ function parseAIInsights(aiResponse, analysisData) {
     console.error('Error parsing AI insights:', error);
     return generateBasicInsights(analysisData);
   }
+}
+
+function normalizeInsights(rawInsights, data) {
+  const safeInsights = rawInsights && typeof rawInsights === 'object' ? rawInsights : {};
+  const base = generateBasicInsights(data);
+
+  const missedQuestionNumbers = data.questionsAnalysis
+    .map((q, idx) => ({ idx, isCorrect: q.isCorrect }))
+    .filter(item => !item.isCorrect)
+    .map(item => item.idx + 1);
+
+  const quizLabel = [data.quizDifficulty, data.quizSubject].filter(Boolean).join(' ');
+  const factualSummary = `${data.studentName || 'Student'} answered ${data.correctAnswers}/${data.totalQuestions} questions correctly (${Number(data.percentage).toFixed(2)}%) in ${quizLabel || 'this'} quiz.${missedQuestionNumbers.length > 0 ? ` Questions ${missedQuestionNumbers.join(', ')} need review.` : ' Great accuracy across all questions.'}`;
+
+  const merged = {
+    ...base,
+    ...safeInsights,
+    overallPerformance: {
+      ...base.overallPerformance,
+      ...(safeInsights.overallPerformance || {}),
+      summary: factualSummary,
+      keyStrengths: asArray(
+        safeInsights?.overallPerformance?.keyStrengths || safeInsights?.overallPerformance?.strengths,
+        base.overallPerformance.keyStrengths
+      ),
+      majorWeaknesses: asArray(
+        safeInsights?.overallPerformance?.majorWeaknesses || safeInsights?.overallPerformance?.weaknesses,
+        base.overallPerformance.majorWeaknesses
+      ),
+      improvementAreas: asArray(
+        safeInsights?.overallPerformance?.improvementAreas,
+        base.overallPerformance.improvementAreas
+      )
+    },
+    conceptualAnalysis: {
+      ...base.conceptualAnalysis,
+      ...(safeInsights.conceptualAnalysis || {})
+    },
+    questionTypeAnalysis: {
+      ...base.questionTypeAnalysis,
+      ...(safeInsights.questionTypeAnalysis || {})
+    },
+    timeManagementAnalysis: {
+      ...base.timeManagementAnalysis,
+      ...(safeInsights.timeManagementAnalysis || {})
+    },
+    detailedRecommendations: Array.isArray(safeInsights.detailedRecommendations) && safeInsights.detailedRecommendations.length > 0
+      ? safeInsights.detailedRecommendations
+      : base.detailedRecommendations,
+    learningPath: {
+      ...base.learningPath,
+      ...(safeInsights.learningPath || {})
+    },
+    motivationalInsights: {
+      ...base.motivationalInsights,
+      ...(safeInsights.motivationalInsights || {})
+    },
+    predictiveAnalysis: {
+      ...base.predictiveAnalysis,
+      ...(safeInsights.predictiveAnalysis || {})
+    }
+  };
+
+  // Backward-compatible keys used by existing frontend pages.
+  merged.overallPerformance.strengths = merged.overallPerformance.keyStrengths;
+  merged.overallPerformance.weaknesses = merged.overallPerformance.majorWeaknesses;
+  merged.recommendations = merged.detailedRecommendations.map(rec => rec.specificAction || rec.expectedImpact).filter(Boolean);
+  merged.nextSteps = asArray(merged.learningPath.immediateActions, []);
+  merged.motivationalMessage = merged.motivationalInsights.confidenceBuilding || merged.motivationalInsights.growthMindset || '';
+
+  return merged;
+}
+
+function asArray(value, fallback = []) {
+  if (Array.isArray(value)) {
+    return value.filter(item => typeof item === 'string' && item.trim().length > 0);
+  }
+
+  return fallback;
 }
 
 /**

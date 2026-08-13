@@ -1,12 +1,24 @@
 const OpenAI = require('openai');
 
+let client;
+
 /**
  * Initialize OpenAI client with Groq
  */
-const client = new OpenAI({
-  apiKey: process.env.GROQ_API_KEY,
-  baseURL: "https://api.groq.com/openai/v1",
-});
+const getClient = () => {
+  if (!process.env.GROQ_API_KEY) {
+    throw new Error('GROQ_API_KEY is not configured. Add it to your .env file to enable AI quiz generation.');
+  }
+
+  if (!client) {
+    client = new OpenAI({
+      apiKey: process.env.GROQ_API_KEY,
+      baseURL: "https://api.groq.com/openai/v1",
+    });
+  }
+
+  return client;
+};
 
 /**
  * Generate quiz with AI from content
@@ -39,8 +51,8 @@ const generateQuizWithAI = async ({
     });
 
     // Call Groq API
-    const response = await client.chat.completions.create({
-      model: process.env.GROQ_AI_MODEL || "llama3-8b-8192", // Use env variable or fallback to stable model
+    const response = await getClient().chat.completions.create({
+      model: process.env.GROQ_AI_MODEL || "llama3-8b-8192", 
       messages: [
         {
           role: "system",

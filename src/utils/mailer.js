@@ -1,14 +1,43 @@
-const nodemailer = require('nodemailer');
+const BREVO_API_KEY = process.env.BREVO_API_KEY;
+const EMAIL_FROM = process.env.EMAIL_FROM;
+const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || 'IntelliQuiz';
 
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 587,
-  secure: false, // important
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+async function sendEmailViaBrevo({ to, subject, html }) {
+  if (!BREVO_API_KEY) {
+    console.error('Brevo API key is not configured (BREVO_API_KEY is missing).');
+    throw new Error('Email service configuration error');
+  }
+
+  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      'accept': 'application/json',
+      'api-key': BREVO_API_KEY,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      sender: {
+        name: EMAIL_FROM_NAME,
+        email: EMAIL_FROM,
+      },
+      to: [
+        {
+          email: to,
+        },
+      ],
+      subject,
+      htmlContent: html,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    console.error('Failed to send email via Brevo API:', errorData);
+    throw new Error(errorData.message || 'Failed to send email');
+  }
+
+  return response.json();
+}
 
 async function sendOTPEmail(to, otp, username, type = 'Email Verification') {
   const emailTemplate = `
@@ -49,11 +78,10 @@ async function sendOTPEmail(to, otp, username, type = 'Email Verification') {
     </html>
   `;
 
-  await transporter.sendMail({
-    from: `"IntelliQuiz" <${process.env.EMAIL_USER}>`,
+  await sendEmailViaBrevo({
     to,
     subject: `${type} - IntelliQuiz`,
-    html: emailTemplate
+    html: emailTemplate,
   });
 }
 
@@ -96,11 +124,10 @@ async function sendGroupInvitationEmail(to, username, groupName, groupId) {
     </html>
   `;
 
-  await transporter.sendMail({
-    from: `"IntelliQuiz" <${process.env.EMAIL_USER}>`,
+  await sendEmailViaBrevo({
     to,
     subject: `Group Invitation: ${groupName} - IntelliQuiz`,
-    html: emailTemplate
+    html: emailTemplate,
   });
 }
 
@@ -151,11 +178,10 @@ async function sendQuizPublishedEmail(to, username, quizTitle, groupName, quizId
     </html>
   `;
 
-  await transporter.sendMail({
-    from: `"IntelliQuiz" <${process.env.EMAIL_USER}>`,
+  await sendEmailViaBrevo({
     to,
     subject: `New Quiz Available: ${quizTitle} - IntelliQuiz`,
-    html: emailTemplate
+    html: emailTemplate,
   });
 }
 

@@ -1,7 +1,11 @@
 require('dotenv').config();
 const express = require('express');
+
 const cors = require('cors');
+
 const http = require('http');
+
+
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const fileRoutes = require('./routes/fileRoutes');
@@ -12,6 +16,7 @@ const leaderboardRoutes = require('./routes/leaderboardRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const socketService = require('./services/socketService');
 const adminController = require('./controllers/adminController');
+
 const router = express.Router();
 
 const app = express();

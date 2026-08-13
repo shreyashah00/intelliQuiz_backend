@@ -4,8 +4,8 @@ const { default: prisma } = require('../lib/prismaClient');
 class SocketService {
   constructor() {
     this.io = null;
-    this.connectedUsers = new Map(); // userId -> socketId
-    this.socketSubscriptions = new Map(); // socketId -> Map(channelKey, subscription)
+    this.connectedUsers = new Map(); 
+    this.socketSubscriptions = new Map(); 
   }
 
   initialize(server) {

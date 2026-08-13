@@ -1,10 +1,22 @@
 const OpenAI = require('openai');
 
+let client;
+
 // Initialize OpenAI client with Groq
-const client = new OpenAI({
-  apiKey: process.env.GROQ_API_KEY,
-  baseURL: "https://api.groq.com/openai/v1",
-});
+const getClient = () => {
+  if (!process.env.GROQ_API_KEY) {
+    return null;
+  }
+
+  if (!client) {
+    client = new OpenAI({
+      apiKey: process.env.GROQ_API_KEY,
+      baseURL: "https://api.groq.com/openai/v1",
+    });
+  }
+
+  return client;
+};
 
 /**
  * Generate comprehensive AI insights for a quiz response
@@ -18,10 +30,15 @@ exports.generateAIInsights = async (quizResponse) => {
     // Prepare data for AI analysis
     analysisData = prepareAnalysisData(quizResponse);
 
+    const groqClient = getClient();
+    if (!groqClient) {
+      return generateBasicInsights(analysisData || quizResponse);
+    }
+
     // Generate insights using Groq AI
     const { systemPrompt, userPrompt } = createInsightsPrompt(analysisData);
 
-    const completion = await client.chat.completions.create({
+    const completion = await groqClient.chat.completions.create({
       messages: [
         {
           role: 'system',
